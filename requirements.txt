@@ -1,6 +1,8 @@
 grpcio==1.62.2
 grpcio-tools==1.62.2
 
+protobuf==5.26.1
+
 pandas==2.2.2
 numpy==1.26.4
 
