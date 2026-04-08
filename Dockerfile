@@ -5,7 +5,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Copy dependency dulu (biar cache optimal)
-COPY requirements.txt .
+COPY requirements-dev.txt .
 
 # Install dependency
 RUN pip install --no-cache-dir -r requirements.txt
