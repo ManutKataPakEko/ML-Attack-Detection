@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+service AttackDetection {
+  rpc Predict (PredictRequest) returns (PredictResponse);
+}
+
+message PredictRequest {
+  string timestamp = 1;
+  string ip = 2;
+  string method = 3;
+  string path = 4;
+  string query = 5;
+  map<string, string> headers = 6;
+  string body = 7;
+}
+
+message PredictResponse {
+  string prediction = 1;
+}

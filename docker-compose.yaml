@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  attack-detection:
+    build: .
+    container_name: attack-detection-service
+
+    ports:
+      - "50051:50051"
+
+    environment:
+      - PYTHONPATH=/app/src
+
+    volumes:
+      - ./logs:/app/logs   # kalau pakai logging file
+
+    restart: unless-stopped
