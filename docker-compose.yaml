@@ -4,14 +4,12 @@ services:
   attack-detection:
     build: .
     container_name: attack-detection-service
-
     ports:
       - "50051:50051"
-
+      - "9999:8000"
     environment:
+      - DATABASE_URL=postgresql://postgres:secret@db:5432/attack_detection
       - PYTHONPATH=/app/src
-
     volumes:
       - ./logs:/app/logs   # kalau pakai logging file
-
     restart: unless-stopped
