@@ -13,3 +13,7 @@ services:
     volumes:
       - ./logs:/app/logs   # kalau pakai logging file
     restart: unless-stopped
+
+networks:
+  ojs-attack-detection-based-on-log_ojs-network:
+    external: true
