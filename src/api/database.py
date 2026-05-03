@@ -83,7 +83,8 @@ def update_label(prediction_id: int, label: str):
 
 
 def get_predictions(date_from: str = None, date_to: str = None,
-                    page: int = 1, page_size: int = 50) -> dict:
+                    page: int = 1, page_size: int = 50,
+                    labeled: bool = None) -> dict:
     where_clauses = []
     params = []
 
@@ -93,6 +94,12 @@ def get_predictions(date_from: str = None, date_to: str = None,
     if date_to:
         where_clauses.append("created_at::date <= %s")
         params.append(date_to)
+
+    # Filter labeled/unlabeled
+    if labeled is True:
+        where_clauses.append("label IS NOT NULL")
+    elif labeled is False:
+        where_clauses.append("label IS NULL")
 
     where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
     offset = (page - 1) * page_size

@@ -35,12 +35,13 @@ def stats(
 
 @app.get("/api/predictions")
 def predictions(
-    date_from: Optional[str] = Query(None),
-    date_to:   Optional[str] = Query(None),
-    page:      int            = Query(1, ge=1),
-    page_size: int            = Query(50, ge=1, le=200),
+    date_from: Optional[str]  = Query(None),
+    date_to:   Optional[str]  = Query(None),
+    page:      int             = Query(1, ge=1),
+    page_size: int             = Query(50, ge=1, le=200),
+    labeled:   Optional[bool]  = Query(None),  # True=sudah, False=belum, None=semua
 ):
-    return get_predictions(date_from, date_to, page, page_size)
+    return get_predictions(date_from, date_to, page, page_size, labeled)
 
 
 @app.patch("/api/predictions/{prediction_id}/label")
