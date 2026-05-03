@@ -5,13 +5,37 @@ services:
     build: .
     container_name: attack-detection-service
     ports:
-      - "50051:50051"
-      - "9999:8000"
+      - "50051:50051"    # gRPC port
+      - "9999:8000"      # REST API port
     environment:
+      # ========== Model & Data Configuration ==========
+      - MODEL_PATH=/app/models/best_model.pkl
+      - PROCESSED_DATA_DIR=/app/data/processed/v0.1.1
+      
+      # ========== Server Configuration ==========
+      - GRPC_PORT=50051
+      - GRPC_WORKERS=10
+      - REST_PORT=8000
+      - REST_HOST=0.0.0.0
+      - REST_RELOAD=false
+      
+      # ========== Database Configuration ==========
       - DATABASE_URL=postgresql://postgres:secret@db:5432/attack_detection
+      
+      # ========== Logging Configuration ==========
+      - LOG_LEVEL=INFO
+      - LOG_DIR=/app/logs
+      
+      # ========== Environment ==========
+      - ENV=production
       - PYTHONPATH=/app/src
+      - PYTHONUNBUFFERED=1
+    
     volumes:
-      - ./logs:/app/logs   # kalau pakai logging file
+      - ./logs:/app/logs
+      - ./models:/app/models:ro
+      - ./data:/app/data:ro
+    
     restart: unless-stopped
 
 networks:

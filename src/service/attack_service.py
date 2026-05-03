@@ -14,7 +14,6 @@ class AttackService(attack_pb2_grpc.AttackDetectionServicer):
         self.extractor = FeatureExtractor()
 
     def Predict(self, request, context):
-
         raw_data = {
             "timestamp": request.timestamp,
             "ip": request.ip,
