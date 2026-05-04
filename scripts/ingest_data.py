@@ -122,22 +122,18 @@ def git_push():
 def hf_push_data_only():
     print("[INFO] Pushing ONLY data/ folder to Hugging Face...")
 
-    # Cara clean: push subtree folder data/
-    subprocess.run(
-        [
-            "git",
-            "subtree",
-            "push",
-            "--prefix",
-            "data",
-            HF_REMOTE_NAME,
-            HF_BRANCH,
-        ],
-        cwd=GIT_REPO_PATH,
-        check=True,
-    )
-
-    print("[INFO] Hugging Face push (data only) completed.")
+    try:
+        subprocess.run(
+            ["git", "push", "hf", f"main:main", "--force"],
+            cwd=GIT_REPO_PATH,
+            check=True,
+        )
+    except:
+        subprocess.run(
+            ["git", "push", "hf", f"main:main"],
+            cwd=GIT_REPO_PATH,
+            check=True,
+        )
 
 
 # =========================
