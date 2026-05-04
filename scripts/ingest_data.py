@@ -1,6 +1,6 @@
 import os
 import subprocess
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -11,30 +11,26 @@ from sqlalchemy import create_engine
 # CONFIGURATION
 # =========================
 DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = os.getenv("DB_PORT", "5432")
-DB_NAME = os.getenv("DB_NAME", "your_database")
-DB_USER = os.getenv("DB_USER", "your_user")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "your_password")
+DB_PORT = os.getenv("DB_PORT", "9929")
+DB_NAME = os.getenv("DB_NAME", "attack_detection")
+DB_USER = os.getenv("DB_USER", "postgres")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "g1ojsjaya")
 
-# Local folder where exported CSV will be stored
-EXPORT_BASE_PATH = Path("/opt/predictions_backup/daily_exports")
+SCRIPT_DIR = Path(__file__).resolve().parent
+GIT_REPO_PATH = SCRIPT_DIR.parent
+EXPORT_BASE_PATH = GIT_REPO_PATH / "data" / "raw" / "ojs-request-log"
 
-# Git repository path (must already be initialized)
-GIT_REPO_PATH = Path("/opt/predictions_backup")
 GIT_BRANCH = "main"
-
-# Hugging Face dataset repo URL
-# Example:
-# https://huggingface.co/datasets/username/dataset-name
-HF_REPO_URL = os.getenv(
-    "HF_REPO_URL",
-    "https://huggingface.co/datasets/username/dataset-name"
-)
-
+HF_REMOTE_NAME = "hf"
 HF_BRANCH = "main"
 
+
+# =========================
+# CORE FUNCTIONS
+# =========================
 def get_target_date():
     return datetime.now().date()
+
 
 def get_engine():
     db_url = (
@@ -43,8 +39,10 @@ def get_engine():
     )
     return create_engine(db_url)
 
+
 def export_predictions():
     target_date = get_target_date()
+
     export_folder = EXPORT_BASE_PATH / str(target_date.year) / f"{target_date.month:02d}"
     export_folder.mkdir(parents=True, exist_ok=True)
 
@@ -58,55 +56,105 @@ def export_predictions():
         ORDER BY timestamp ASC;
     """
 
-    print(f"Running query for date: {target_date}")
+    print(f"[INFO] Running query for {target_date}")
 
-    engine = get_engine()
-    df = pd.read_sql(query, engine)
-
+    df = pd.read_sql(query, get_engine())
     df.to_csv(output_file, index=False)
-    print(f"Exported {len(df)} rows to: {output_file}")
+
+    print(f"[INFO] Exported {len(df)} rows → {output_file}")
 
     return output_file
 
-def git_push(file_path: Path):
-    print("Pushing to GitHub...")
 
-    subprocess.run(["git", "-C", str(GIT_REPO_PATH), "add", str(file_path)], check=True)
+# =========================
+# DVC HANDLING
+# =========================
+def dvc_track(file_path: Path):
+    print("[INFO] Tracking file with DVC...")
+
     subprocess.run(
-        [
-            "git", "-C", str(GIT_REPO_PATH),
-            "commit", "-m", f"Auto backup predictions for {datetime.now().date()}"
-        ],
+        ["dvc", "add", str(file_path)],
+        cwd=GIT_REPO_PATH,
+        check=True
+    )
+
+    print("[INFO] DVC tracking completed.")
+
+
+def dvc_push():
+    print("[INFO] Pushing data to DVC remote...")
+
+    subprocess.run(
+        ["dvc", "push"],
+        cwd=GIT_REPO_PATH,
+        check=True
+    )
+
+    print("[INFO] DVC push completed.")
+
+
+# =========================
+# GIT PUSH (GitHub)
+# =========================
+def git_push():
+    print("[INFO] Pushing metadata to GitHub...")
+
+    subprocess.run(["git", "add", "."], cwd=GIT_REPO_PATH, check=True)
+
+    subprocess.run(
+        ["git", "commit", "-m", f"Auto update {datetime.now().date()}"],
+        cwd=GIT_REPO_PATH,
         check=False,
     )
+
     subprocess.run(
-        ["git", "-C", str(GIT_REPO_PATH), "push", "origin", GIT_BRANCH],
+        ["git", "push", "origin", GIT_BRANCH],
+        cwd=GIT_REPO_PATH,
         check=True,
     )
 
-    print("GitHub push completed.")
+    print("[INFO] GitHub push completed.")
 
 
-def hf_push():
-    print("Pushing to Hugging Face...")
+# =========================
+# HUGGING FACE PUSH (DATA ONLY)
+# =========================
+def hf_push_data_only():
+    print("[INFO] Pushing ONLY data/ folder to Hugging Face...")
 
-    # Assumes same folder is also a HF git repo remote
-    # Example:
-    # git remote add hf https://huggingface.co/datasets/username/dataset-name
-
+    # Cara clean: push subtree folder data/
     subprocess.run(
-        ["git", "-C", str(GIT_REPO_PATH), "push", "hf", HF_BRANCH],
+        [
+            "git",
+            "subtree",
+            "push",
+            "--prefix",
+            "data",
+            HF_REMOTE_NAME,
+            HF_BRANCH,
+        ],
+        cwd=GIT_REPO_PATH,
         check=True,
     )
 
-    print("Hugging Face push completed.")
+    print("[INFO] Hugging Face push (data only) completed.")
 
+
+# =========================
+# MAIN PIPELINE
+# =========================
 if __name__ == "__main__":
     try:
         exported_file = export_predictions()
-        git_push(exported_file)
-        hf_push()
-        print("Daily export job completed successfully.")
+
+        dvc_track(exported_file)
+        dvc_push()
+
+        git_push()
+        hf_push_data_only()
+
+        print("[SUCCESS] Daily pipeline completed.")
+
     except Exception as e:
-        print(f"Job failed: {e}")
+        print(f"[ERROR] {e}")
         raise
