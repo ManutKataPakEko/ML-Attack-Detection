@@ -122,18 +122,10 @@ def git_push():
 def hf_push_data_only():
     print("[INFO] Pushing ONLY data/ folder to Hugging Face...")
 
-    try:
-        subprocess.run(
-            ["git", "push", "hf", f"main:main", "--force"],
-            cwd=GIT_REPO_PATH,
-            check=True,
-        )
-    except:
-        subprocess.run(
-            ["git", "push", "hf", f"main:main"],
-            cwd=GIT_REPO_PATH,
-            check=True,
-        )
+    subprocess.run(
+        ["hf", "upload", "AkbarFikri/ojs-request-log", "./data", "data", "--repo-type=dataset"],
+        check=True
+    )
 
 
 # =========================
