@@ -106,12 +106,15 @@ def _init_sqlite_db(conn):
             headers     TEXT,
             prediction  TEXT        NOT NULL CHECK (prediction IN ('Normal', 'Attack')),
             label       TEXT        CHECK (label IN ('Normal', 'Attack')),
+            attack_type TEXT,
+            attack_confidence REAL,
             created_at  DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_predictions_created_at ON predictions (created_at DESC)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_predictions_prediction  ON predictions (prediction)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_predictions_label       ON predictions (label)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_predictions_attack_type ON predictions (attack_type)")
     conn.commit()
 
 
@@ -121,8 +124,8 @@ def _insert_sqlite_prediction(conn, data: dict):
     headers_json = json.dumps(data.get('headers', {})) if isinstance(data.get('headers'), dict) else data.get('headers', '{}')
     
     cursor.execute("""
-        INSERT INTO predictions (timestamp, ip, method, path, query, body, headers, prediction, label)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO predictions (timestamp, ip, method, path, query, body, headers, prediction, label, attack_type, attack_confidence)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         data.get('timestamp'),
         data.get('ip'),
@@ -132,7 +135,9 @@ def _insert_sqlite_prediction(conn, data: dict):
         data.get('body'),
         headers_json,
         data.get('prediction'),
-        data.get('label')
+        data.get('label'),
+        data.get('attack_type'),
+        data.get('attack_confidence')
     ))
     conn.commit()
 
@@ -189,12 +194,15 @@ def _init_postgresql_db(conn):
             headers     JSONB,
             prediction  TEXT        NOT NULL CHECK (prediction IN ('Normal', 'Attack')),
             label       TEXT        CHECK (label IN ('Normal', 'Attack')),
+            attack_type TEXT,
+            attack_confidence REAL,
             created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_predictions_created_at ON predictions (created_at DESC)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_predictions_prediction  ON predictions (prediction)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_predictions_label       ON predictions (label)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_predictions_attack_type ON predictions (attack_type)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_predictions_headers     ON predictions USING gin (headers)")
     conn.commit()
 
@@ -205,8 +213,8 @@ def _insert_postgresql_prediction(conn, data: dict):
     
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO predictions (timestamp, ip, method, path, query, body, headers, prediction, label)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO predictions (timestamp, ip, method, path, query, body, headers, prediction, label, attack_type, attack_confidence)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, (
         data.get('timestamp'),
         data.get('ip'),
@@ -216,7 +224,9 @@ def _insert_postgresql_prediction(conn, data: dict):
         data.get('body'),
         psycopg2.extras.Json(data.get('headers', {})),
         data.get('prediction'),
-        data.get('label')
+        data.get('label'),
+        data.get('attack_type'),
+        data.get('attack_confidence')
     ))
     conn.commit()
 
@@ -380,7 +390,7 @@ def get_predictions(date_from: str = None, date_to: str = None,
                 cursor.execute(
                     f"""
                     SELECT id, timestamp, ip, method, path, query, body, headers,
-                           prediction, label, created_at
+                           prediction, label, attack_type, attack_confidence, created_at
                     FROM predictions
                     {where_sql}
                     ORDER BY created_at DESC
@@ -403,7 +413,9 @@ def get_predictions(date_from: str = None, date_to: str = None,
                         'headers': row[7],
                         'prediction': row[8],
                         'label': row[9],
-                        'created_at': row[10]
+                        'attack_type': row[10],
+                        'attack_confidence': row[11],
+                        'created_at': row[12]
                     })
         
         elif db_type in ('postgresql', 'postgres'):
@@ -419,7 +431,7 @@ def get_predictions(date_from: str = None, date_to: str = None,
                 cursor.execute(
                     f"""
                     SELECT id, timestamp, ip, method, path, query, body, headers,
-                           prediction, label,
+                           prediction, label, attack_type, attack_confidence,
                            TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS created_at
                     FROM predictions
                     {where_sql}
@@ -583,4 +595,257 @@ def get_stats(date_from: str = None, date_to: str = None) -> dict:
     
     except Exception as e:
         logger.error(f"Failed to get stats: {str(e)}")
+        raise
+
+
+def get_classified_attacks(date_from: str = None, date_to: str = None,
+                          attack_type: str = None,
+                          page: int = 1, page_size: int = 50) -> dict:
+    """
+    Get paginated list of classified attacks.
+    
+    Args:
+        date_from: Filter by start date (YYYY-MM-DD)
+        date_to: Filter by end date (YYYY-MM-DD)
+        attack_type: Filter by specific attack type (e.g., 'sql_injection')
+        page: Page number (1-indexed)
+        page_size: Results per page
+    
+    Returns:
+        Dict with total, page, page_size, items
+    """
+    db_type = get_db_type(DATABASE_URL)
+    
+    try:
+        where_clauses = ["prediction = 'Attack'"]
+        params = []
+        
+        if date_from:
+            where_clauses.append("DATE(created_at) >= ?") if db_type == 'sqlite' else where_clauses.append("created_at::date >= %s")
+            params.append(date_from)
+        if date_to:
+            where_clauses.append("DATE(created_at) <= ?") if db_type == 'sqlite' else where_clauses.append("created_at::date <= %s")
+            params.append(date_to)
+        
+        if attack_type:
+            where_clauses.append("attack_type = ?") if db_type == 'sqlite' else where_clauses.append("attack_type = %s")
+            params.append(attack_type)
+        
+        where_sql = "WHERE " + " AND ".join(where_clauses)
+        offset = (page - 1) * page_size
+        
+        if db_type == 'sqlite':
+            with _get_sqlite_ctx() as conn:
+                cursor = conn.cursor()
+                
+                # Get total count
+                cursor.execute(f"SELECT COUNT(*) as count FROM predictions {where_sql}", params)
+                total = cursor.fetchone()[0]
+                
+                # Get paginated results
+                cursor.execute(
+                    f"""
+                    SELECT id, timestamp, ip, method, path,
+                           prediction, attack_type, attack_confidence, label, created_at
+                    FROM predictions
+                    {where_sql}
+                    ORDER BY created_at DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    params + [page_size, offset]
+                )
+                rows = cursor.fetchall()
+                
+                items = []
+                for row in rows:
+                    items.append({
+                        'id': row[0],
+                        'timestamp': row[1],
+                        'ip': row[2],
+                        'method': row[3],
+                        'path': row[4],
+                        'prediction': row[5],
+                        'attack_type': row[6],
+                        'attack_confidence': row[7],
+                        'label': row[8],
+                        'created_at': row[9]
+                    })
+        
+        elif db_type in ('postgresql', 'postgres'):
+            import psycopg2.extras
+            with _get_postgresql_ctx() as conn:
+                cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                
+                # Get total count
+                cursor.execute(f"SELECT COUNT(*) FROM predictions {where_sql}", params)
+                total = cursor.fetchone()["count"]
+                
+                # Get paginated results
+                cursor.execute(
+                    f"""
+                    SELECT id, timestamp, ip, method, path,
+                           prediction, attack_type, attack_confidence, label,
+                           TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS created_at
+                    FROM predictions
+                    {where_sql}
+                    ORDER BY created_at DESC
+                    LIMIT %s OFFSET %s
+                    """,
+                    params + [page_size, offset]
+                )
+                items = [dict(r) for r in cursor.fetchall()]
+        
+        return {
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "items": items
+        }
+    
+    except Exception as e:
+        logger.error(f"Failed to get classified attacks: {str(e)}")
+        raise
+
+
+def get_attack_statistics(date_from: str = None, date_to: str = None) -> dict:
+    """
+    Get attack classification statistics.
+    
+    Returns breakdown of attacks by type for the specified date range.
+    
+    Args:
+        date_from: Filter from date (YYYY-MM-DD)
+        date_to: Filter to date (YYYY-MM-DD)
+    
+    Returns:
+        Dict with attack_type_breakdown and daily_breakdown
+    """
+    db_type = get_db_type(DATABASE_URL)
+    
+    try:
+        where_clauses = ["prediction = 'Attack'"]
+        params = []
+        
+        if date_from:
+            where_clauses.append("DATE(created_at) >= ?") if db_type == 'sqlite' else where_clauses.append("created_at::date >= %s")
+            params.append(date_from)
+        if date_to:
+            where_clauses.append("DATE(created_at) <= ?") if db_type == 'sqlite' else where_clauses.append("created_at::date <= %s")
+            params.append(date_to)
+        
+        where_sql = "WHERE " + " AND ".join(where_clauses)
+        
+        if db_type == 'sqlite':
+            with _get_sqlite_ctx() as conn:
+                cursor = conn.cursor()
+                
+                # Get attack type breakdown
+                cursor.execute(
+                    f"""
+                    SELECT 
+                        attack_type,
+                        COUNT(*) as count,
+                        AVG(attack_confidence) as avg_confidence
+                    FROM predictions
+                    {where_sql}
+                    GROUP BY attack_type
+                    ORDER BY count DESC
+                    """,
+                    params
+                )
+                attack_types = cursor.fetchall()
+                
+                # Get daily breakdown
+                cursor.execute(
+                    f"""
+                    SELECT
+                        DATE(created_at) as day,
+                        attack_type,
+                        COUNT(*) as count
+                    FROM predictions
+                    {where_sql}
+                    GROUP BY DATE(created_at), attack_type
+                    ORDER BY day DESC, count DESC
+                    """,
+                    params
+                )
+                daily_breakdown = cursor.fetchall()
+                
+                return {
+                    "attack_type_breakdown": [
+                        {
+                            "attack_type": t[0],
+                            "count": t[1],
+                            "avg_confidence": round(t[2], 3) if t[2] else None
+                        }
+                        for t in attack_types
+                    ],
+                    "daily_breakdown": [
+                        {
+                            "day": str(d[0]),
+                            "attack_type": d[1],
+                            "count": d[2]
+                        }
+                        for d in daily_breakdown
+                    ]
+                }
+        
+        elif db_type in ('postgresql', 'postgres'):
+            import psycopg2.extras
+            with _get_postgresql_ctx() as conn:
+                cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                
+                # Get attack type breakdown
+                cursor.execute(
+                    f"""
+                    SELECT 
+                        attack_type,
+                        COUNT(*) as count,
+                        AVG(attack_confidence) as avg_confidence
+                    FROM predictions
+                    {where_sql}
+                    GROUP BY attack_type
+                    ORDER BY count DESC
+                    """,
+                    params
+                )
+                attack_types = cursor.fetchall()
+                
+                # Get daily breakdown
+                cursor.execute(
+                    f"""
+                    SELECT
+                        created_at::date as day,
+                        attack_type,
+                        COUNT(*) as count
+                    FROM predictions
+                    {where_sql}
+                    GROUP BY day, attack_type
+                    ORDER BY day DESC, count DESC
+                    """,
+                    params
+                )
+                daily_breakdown = cursor.fetchall()
+                
+                return {
+                    "attack_type_breakdown": [
+                        {
+                            "attack_type": t["attack_type"],
+                            "count": int(t["count"]),
+                            "avg_confidence": round(float(t["avg_confidence"]), 3) if t["avg_confidence"] else None
+                        }
+                        for t in attack_types
+                    ],
+                    "daily_breakdown": [
+                        {
+                            "day": str(d["day"]),
+                            "attack_type": d["attack_type"],
+                            "count": int(d["count"])
+                        }
+                        for d in daily_breakdown
+                    ]
+                }
+    
+    except Exception as e:
+        logger.error(f"Failed to get attack statistics: {str(e)}")
         raise

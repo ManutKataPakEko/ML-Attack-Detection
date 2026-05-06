@@ -57,6 +57,7 @@ def run_grpc():
     from concurrent import futures
     from inference.model_loader import load_model
     from inference.predictor import AttackPredictor
+    from inference.classifier_loader import load_attack_classifier
     from service.attack_service import AttackService
     import proto.attack_pb2_grpc as attack_pb2_grpc
     from api.database import init_db
@@ -65,12 +66,25 @@ def run_grpc():
     logger.info("Initializing database...")
     init_db()
 
-    # Load model
+    # Load attack detection model
     logger.info("Loading attack detection model...")
     model = load_model()
 
     # Initialize predictor
     predictor = AttackPredictor(model)
+
+    # Load attack classification model (optional)
+    classifier = None
+    try:
+        logger.info("Loading attack classification model...")
+        classifier = load_attack_classifier()
+        logger.info("✓ Attack classification model loaded successfully")
+    except FileNotFoundError as e:
+        logger.warning(f"Attack classification model not available: {str(e)}")
+        logger.warning("Attack classification will be disabled")
+    except Exception as e:
+        logger.warning(f"Error loading attack classification model: {str(e)}")
+        logger.warning("Attack classification will be disabled")
 
     # Start gRPC server
     port = config.GRPC_PORT
@@ -80,7 +94,7 @@ def run_grpc():
     
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=workers))
     attack_pb2_grpc.add_AttackDetectionServicer_to_server(
-        AttackService(predictor),
+        AttackService(predictor, classifier),
         server
     )
     server.add_insecure_port(f"[::]:{port}")
@@ -115,7 +129,8 @@ if __name__ == "__main__":
     logger.info("=" * 60)
     logger.info(f"Environment: {config.is_production() and 'PRODUCTION' or 'DEVELOPMENT'}")
     logger.info(f"Running in Docker: {config.is_docker()}")
-    logger.info(f"Model Path: {config.MODEL_PATH}")
+    logger.info(f"Attack Detection Model: {config.MODEL_PATH}")
+    logger.info(f"Attack Classification Model: {config.ATTACK_CLASSIFIER_MODEL_PATH}")
     logger.info(f"Database: {config.DATABASE_URL}")
     logger.info(f"gRPC Port: {config.GRPC_PORT}")
     logger.info(f"REST Port: {config.REST_PORT}")

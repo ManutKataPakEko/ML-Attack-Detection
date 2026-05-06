@@ -28,6 +28,17 @@ class Config:
         "models/attack-detection-v0.1.1.pkl"
     )
     
+    # Attack Classification Model
+    ATTACK_CLASSIFIER_MODEL_PATH = os.getenv(
+        "ATTACK_CLASSIFIER_MODEL_PATH",
+        "models/attack-classification-v0.1.1.pkl"
+    )
+    
+    ATTACK_CLASSIFIER_METADATA_PATH = os.getenv(
+        "ATTACK_CLASSIFIER_METADATA_PATH",
+        "models/attack-classification-v0.1.1-metadata.json"
+    )
+    
     # ========== Database Configuration ==========
     DATABASE_URL = os.getenv(
         "DATABASE_URL",

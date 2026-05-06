@@ -31,12 +31,15 @@ def upgrade() -> None:
         headers     JSONB,
         prediction  TEXT        NOT NULL CHECK (prediction IN ('Normal', 'Attack')),
         label       TEXT                 CHECK (label IN ('Normal', 'Attack')),
+        attack_type TEXT,
+        attack_confidence REAL,
         created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
     """)
     op.execute("CREATE INDEX IF NOT EXISTS idx_predictions_created_at ON predictions (created_at DESC)")
     op.execute("CREATE INDEX IF NOT EXISTS idx_predictions_prediction  ON predictions (prediction)")
     op.execute("CREATE INDEX IF NOT EXISTS idx_predictions_label       ON predictions (label)")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_predictions_attack_type ON predictions (attack_type)")
     op.execute("CREATE INDEX IF NOT EXISTS idx_predictions_headers     ON predictions USING gin (headers)")
 
 
