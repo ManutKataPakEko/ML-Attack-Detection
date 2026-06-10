@@ -12,6 +12,7 @@ Terintegrasi dengan:
 """
 
 import os
+import sys
 import json
 import logging
 import argparse
@@ -41,7 +42,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-REPO_ROOT      = Path(__file__).resolve().parents[1]   # satu level di atas src/
+# train.py ada di src/training/train.py → parents[0]=src/training, [1]=src, [2]=repo root
+REPO_ROOT      = Path(__file__).resolve().parents[2]
 PROCESSED_DIR  = REPO_ROOT / "data" / "processed" / "v0.1.1"
 RAW_DATA_DIR   = REPO_ROOT / "data" / "raw" / "ojs-request-log"
 MODELS_DIR     = REPO_ROOT / "models"
@@ -111,7 +113,8 @@ def run_ingest(target_date: str = None, days_back: int = 1, push: bool = False):
     """
     logger.info("=== [Step 0] Data Ingestion ===")
     cmd = [
-        "python", str(REPO_ROOT / "src" / "data" / "ingest_data.py"),
+        sys.executable,
+        str(REPO_ROOT / "src" / "data" / "ingest_data.py"),
         "--days-back", str(days_back),
         "--table", "predictions",
     ]
@@ -132,7 +135,8 @@ def run_preprocess(target_date: str = None, append: bool = True, n_features: int
     """
     logger.info("=== [Step 1] Preprocessing ===")
     cmd = [
-        "python", str(REPO_ROOT / "src" / "data" / "preprocess.py"),
+        sys.executable,
+        str(REPO_ROOT / "src" / "data" / "preprocess.py"),
         "--n-features", str(n_features),
     ]
     if target_date:
